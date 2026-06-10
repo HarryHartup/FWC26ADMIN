@@ -4,20 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FWC26 Schedule Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   body { background: #080B16; color: #F0F2FF; font-family: 'Barlow', sans-serif; font-size: 13px; margin: 0; padding: 24px; }
   .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-  h2 { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 24px; letter-spacing: 1px; }
-  .status { font-family: 'Barlow Condensed', sans-serif; font-size: 16px; color: #F5A623; margin-left: 20px; }
+  h2 { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 24px; letter-spacing: 1px; text-transform: uppercase; }
+  .status { font-family: 'Barlow Condensed', sans-serif; font-size: 16px; color: #F5A623; margin-left: 20px; letter-spacing: 1px;}
   
   .banner-note { background: rgba(245, 166, 35, 0.15); border-left: 4px solid #F5A623; padding: 12px 20px; margin-bottom: 24px; font-size: 14px; border-radius: 4px; line-height: 1.5; }
   .banner-note strong { color: #F5A623; }
 
   button { background: #F5A623; color: #000; border: none; padding: 10px 20px; font-family: 'Barlow Condensed', sans-serif; font-weight: bold; font-size: 16px; letter-spacing: 1px; border-radius: 4px; cursor: pointer; transition: 0.2s; }
   button:hover { filter: brightness(1.1); transform: translateY(-1px); }
-  button:disabled { background: #555; cursor: not-allowed; transform: none; }
+  button:disabled { background: #333; color: #777; cursor: not-allowed; transform: none; }
   
-  .table-wrapper { background: #0F1220; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow-x: auto; }
+  .btn-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); margin-right: 10px;}
+  .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+
+  .table-wrapper { background: #0F1220; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow-x: auto; display: none; }
+  .table-wrapper.active { display: block; }
+  
   table { width: 100%; border-collapse: collapse; min-width: 1200px; }
   th { background: #1A2038; padding: 12px; text-align: left; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: 1px; color: #8892AA; text-transform: uppercase; position: sticky; top: 0; }
   td { border-bottom: 1px solid rgba(255,255,255,0.04); padding: 4px 8px; }
@@ -27,6 +33,10 @@
   input:focus, select:focus { outline: none; border-color: #F5A623; background: #1A2038; }
   select option { background: #1A2038; }
   
+  .fallback-box { display: none; background: #0F1220; padding: 20px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); }
+  .fallback-box.active { display: block; }
+  .fallback-box textarea { width: 100%; height: 200px; background: #080B16; color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 10px; font-family: monospace; border-radius: 4px; margin-top: 10px; margin-bottom: 15px; resize: vertical; }
+
   /* MODAL POP-UP STYLES */
   .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); }
   .modal-overlay.show { display: flex; }
@@ -41,16 +51,26 @@
 <div class="header">
   <div style="display: flex; align-items: center;">
     <h2>FWC26 Admin Editor</h2>
-    <span class="status" id="statusLabel">🔄 Fetching live data from GitHub...</span>
+    <span class="status" id="statusLabel">🔄 Fetching live data...</span>
   </div>
-  <button id="exportBtn" onclick="exportData()" disabled>📥 Download Updated index.html</button>
+  <div>
+    <button class="btn-secondary" onclick="toggleManualMode()">🛠️ Manual Mode</button>
+    <button id="exportBtn" onclick="exportData()" disabled>📥 Download Updated HTML</button>
+  </div>
 </div>
 
 <div class="banner-note">
-  <strong>⚠️ IMPORTANT NOTE:</strong> Saving changes here will <strong>NOT</strong> automatically affect the live page. You must send the downloaded <code>index.html</code> code file to Harry so he can deploy the updates to the main GitHub repository.
+  <strong>⚠️ IMPORTANT NOTE:</strong> Saving changes here creates a file on your computer. It does <strong>NOT</strong> automatically update the live site. You must send the downloaded <code>index.html</code> code to Harry to deploy.
 </div>
 
-<div class="table-wrapper">
+<div class="fallback-box" id="fallbackBox">
+  <h3 style="margin-top:0;">Manual Paste Mode</h3>
+  <p style="color:var(--muted); margin-top:0;">Auto-fetch failed. Open your `index.html` file, copy all the code, and paste it into the box below to edit it.</p>
+  <textarea id="manualInput" placeholder="Paste your entire index.html code here..."></textarea>
+  <button onclick="loadManualData()">Load Code Into Editor</button>
+</div>
+
+<div class="table-wrapper" id="tableContainer">
   <table id="editorTable">
     <thead>
       <tr>
@@ -72,13 +92,12 @@
   </table>
 </div>
 
-<!-- POP-UP WARNING MODAL -->
 <div id="deployModal" class="modal-overlay">
   <div class="modal-content">
     <h3>⚠️ Action Required</h3>
     <p>Your updated <code>index.html</code> file is downloading!</p>
     <p style="color: #FF6B6B; font-weight: bold;">These changes are NOT live yet.</p>
-    <p>Please send this downloaded file (or the code inside it) directly to <strong>Harry</strong> so he can deploy it to the main GitHub repository.</p>
+    <p>Please send this downloaded file directly to <strong>Harry</strong> so he can deploy it to the main GitHub repository.</p>
     <button onclick="closeModal()">Understood</button>
   </div>
 </div>
@@ -86,42 +105,78 @@
 <script>
 let matches = [];
 let fullLiveHTML = "";
-const LIVE_URL = "https://harryhartup.github.io/FWC26/";
+// Using a safe proxy to bypass local file browser blocks (CORS)
+const LIVE_URL = "https://api.allorigins.win/raw?url=" + encodeURIComponent("https://harryhartup.github.io/FWC26/?nocache=" + new Date().getTime());
 
 async function fetchLiveSite() {
   try {
-    // Add a cache-buster so we always pull the absolute latest version from GitHub
-    const res = await fetch(LIVE_URL + "?nocache=" + new Date().getTime());
-    if (!res.ok) throw new Error("Network response was not ok.");
+    const res = await fetch(LIVE_URL);
+    if (!res.ok) throw new Error("Could not connect to GitHub URL.");
     
-    fullLiveHTML = await document.body.innerText ? await res.text() : "";
+    // Safely get the raw text code
+    fullLiveHTML = await res.text();
     
     // Regex to find the matches array block in the raw HTML
     const regex = /const matches\s*=\s*\[([\s\S]*?)\];/;
     const match = fullLiveHTML.match(regex);
     
     if (match) {
-      // Reconstruct the array string and evaluate it so we can manipulate it as a real JS array
+      // Reconstruct array safely
       const arrayStr = "[" + match[1] + "]";
       matches = new Function("return " + arrayStr)();
       
       document.getElementById('statusLabel').innerHTML = "🟢 Connected to live site data";
       document.getElementById('statusLabel').style.color = "#3DE090";
       document.getElementById('exportBtn').disabled = false;
+      
+      document.getElementById('tableContainer').classList.add('active');
+      document.getElementById('fallbackBox').classList.remove('active');
       renderTable();
     } else {
-      throw new Error("Could not locate the matches array in the live code.");
+      throw new Error("Could not find schedule data in live code.");
     }
   } catch (err) {
-    document.getElementById('statusLabel').innerHTML = "🔴 Error fetching live data: " + err.message;
+    document.getElementById('statusLabel').innerHTML = "🔴 Auto-fetch failed. Please use Manual Mode.";
     document.getElementById('statusLabel').style.color = "#FF6B6B";
+    toggleManualMode();
+  }
+}
+
+function toggleManualMode() {
+  document.getElementById('fallbackBox').classList.toggle('active');
+  document.getElementById('tableContainer').classList.remove('active');
+  document.getElementById('statusLabel').innerHTML = "🟡 Manual Mode Active";
+  document.getElementById('statusLabel').style.color = "#F5A623";
+}
+
+function loadManualData() {
+  try {
+    fullLiveHTML = document.getElementById('manualInput').value;
+    const regex = /const matches\s*=\s*\[([\s\S]*?)\];/;
+    const match = fullLiveHTML.match(regex);
+    
+    if (match) {
+      const arrayStr = "[" + match[1] + "]";
+      matches = new Function("return " + arrayStr)();
+      
+      document.getElementById('fallbackBox').classList.remove('active');
+      document.getElementById('tableContainer').classList.add('active');
+      document.getElementById('statusLabel').innerHTML = "🟢 Manual Code Loaded Successfully";
+      document.getElementById('statusLabel').style.color = "#3DE090";
+      document.getElementById('exportBtn').disabled = false;
+      renderTable();
+    } else {
+      alert("Error: Could not find the schedule array in the code you pasted.");
+    }
+  } catch(err) {
+    alert("Failed to parse data. Make sure you pasted the complete index.html code.");
   }
 }
 
 function renderTable() {
   const tbody = document.getElementById('editorBody');
   tbody.innerHTML = matches.map((m, rowIndex) => {
-    // Fill empty spots to prevent undefined errors
+    // Fill empty spots to prevent undefined errors if a column is missing
     while(m.length < 12) m.push(""); 
     
     return `
