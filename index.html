@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FWC26 Schedule Admin</title>
+<title>FWC26 Schedule Admin Panel</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   body { background: #080B16; color: #F0F2FF; font-family: 'Barlow', sans-serif; font-size: 13px; margin: 0; padding: 24px; }
@@ -64,6 +64,7 @@
   </div>
 </div>
 
+<!-- MANUAL FALLBACK MODE -->
 <div class="fallback-box" id="fallbackBox">
   <h3 style="margin-top:0;">Manual Paste Mode</h3>
   <p style="color:var(--muted); margin-top:0;">Auto-fetch failed. Open your live `index.html` file, copy all the code, and paste it below.</p>
@@ -71,6 +72,7 @@
   <button onclick="loadManualData()">Load Code Into Editor</button>
 </div>
 
+<!-- DATA TABLE -->
 <div class="table-wrapper" id="tableContainer">
   <table id="editorTable">
     <thead>
@@ -93,6 +95,7 @@
   </table>
 </div>
 
+<!-- CONFIRMATION MODAL -->
 <div id="confirmModal" class="modal-overlay">
   <div class="modal-content">
     <h3>⚠️ Confirm Deployment</h3>
@@ -105,7 +108,7 @@
   </div>
 </div>
 
-<div class="toast" id="toast">✅ Successfully deployed to GitHub! Live in ~60 seconds.</div>
+<div class="toast" id="toast"></div>
 
 <script>
 // ==========================================
@@ -114,19 +117,20 @@
 const REPO_OWNER = 'HarryHartup'; // Your exact GitHub username
 const REPO_NAME = 'FWC26';        // Your exact repository name
 const FILE_PATH = 'index.html';   // The file being updated
+const BRANCH = 'main';            // Target execution branch
 
-// ⚠️ PASTE YOUR GITHUB TOKEN INSIDE THESE QUOTES:
+// ⚠️ PASTE YOUR GITHUB CLASSIC TOKEN (starts with ghp_) INSIDE THESE QUOTES:
 const GITHUB_TOKEN = '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'; 
 // ==========================================
 
 let matches = [];
 let fullLiveHTML = "";
-const LIVE_URL = "https://api.allorigins.win/raw?url=" + encodeURIComponent(`https://${REPO_OWNER}.github.io/${REPO_NAME}/?nocache=` + new Date().getTime());
+const LIVE_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${FILE_PATH}?nocache=${new Date().getTime()}`;
 
 async function fetchLiveSite() {
   try {
     const res = await fetch(LIVE_URL);
-    if (!res.ok) throw new Error("Could not connect to GitHub URL.");
+    if (!res.ok) throw new Error("Could not fetch raw code from GitHub.");
     
     fullLiveHTML = await res.text();
     const regex = /const matches\s*=\s*\[([\s\S]*?)\];/;
@@ -260,20 +264,17 @@ function downloadFallback() {
   a.click();
 }
 
-// Show the confirmation modal
 function confirmDeploy() {
   if (GITHUB_TOKEN === 'PASTE_YOUR_TOKEN_HERE' || !GITHUB_TOKEN) {
-    return alert("⚠️ You need to paste your GitHub Token into the GITHUB_TOKEN variable in the code first!");
+    return alert("⚠️ You need to paste your classic ghp_ token inside the GITHUB_TOKEN variable in the code script first!");
   }
   document.getElementById('confirmModal').classList.add('show');
 }
 
-// Close the modal
 function closeConfirmModal() {
   document.getElementById('confirmModal').classList.remove('show');
 }
 
-// GITHUB API DEPLOYMENT
 async function executeDeploy() {
   closeConfirmModal();
   
@@ -287,11 +288,14 @@ async function executeDeploy() {
 
     const getUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
     const getRes = await fetch(getUrl, {
-      headers: { 'Authorization': `Bearer ${GITHUB_TOKEN}` }
+      headers: { 
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
     });
     
-    if (getRes.status === 401 || getRes.status === 403) throw new Error("Invalid GitHub Token. Check your permissions.");
-    if (!getRes.ok) throw new Error("Could not locate index.html in the repository.");
+    if (getRes.status === 401 || getRes.status === 403) throw new Error("Authentication failed. Check your token permissions.");
+    if (!getRes.ok) throw new Error("Could not find the target layout on repository main branch.");
     
     const fileData = await getRes.json();
     const currentSha = fileData.sha;
@@ -299,18 +303,19 @@ async function executeDeploy() {
     const putRes = await fetch(getUrl, {
       method: 'PUT',
       headers: {
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         message: 'Update schedule via Admin Panel',
         content: base64Content,
         sha: currentSha,
-        branch: 'main'
+        branch: BRANCH
       })
     });
 
-    if (!putRes.ok) throw new Error("Failed to write new file to GitHub.");
+    if (!putRes.ok) throw new Error("Write request denied by GitHub endpoint.");
 
     showToast("✅ Successfully deployed to GitHub! Live in ~60 seconds.");
     document.getElementById('statusLabel').innerHTML = "🟢 Push Successful!";
@@ -324,7 +329,6 @@ async function executeDeploy() {
   }
 }
 
-// Start sequence
 fetchLiveSite();
 </script>
 </body>
