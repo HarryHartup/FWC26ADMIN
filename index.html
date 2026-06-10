@@ -11,14 +11,13 @@
   h2 { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 24px; letter-spacing: 1px; text-transform: uppercase; }
   .status { font-family: 'Barlow Condensed', sans-serif; font-size: 16px; color: #F5A623; margin-left: 20px; letter-spacing: 1px;}
   
-  .banner-note { background: rgba(245, 166, 35, 0.15); border-left: 4px solid #F5A623; padding: 12px 20px; margin-bottom: 24px; font-size: 14px; border-radius: 4px; line-height: 1.5; }
-  .banner-note strong { color: #F5A623; }
+  .deploy-controls { display: flex; align-items: center; gap: 12px; }
 
   button { background: #F5A623; color: #000; border: none; padding: 10px 20px; font-family: 'Barlow Condensed', sans-serif; font-weight: bold; font-size: 16px; letter-spacing: 1px; border-radius: 4px; cursor: pointer; transition: 0.2s; }
   button:hover { filter: brightness(1.1); transform: translateY(-1px); }
   button:disabled { background: #333; color: #777; cursor: not-allowed; transform: none; }
   
-  .btn-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); margin-right: 10px;}
+  .btn-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); }
   .btn-secondary:hover { background: rgba(255,255,255,0.15); }
 
   .table-wrapper { background: #0F1220; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow-x: auto; display: none; }
@@ -43,7 +42,12 @@
   .modal-content { background: #161B2E; border: 1px solid #F5A623; border-radius: 8px; padding: 32px; max-width: 420px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
   .modal-content h3 { color: #F5A623; margin-top: 0; margin-bottom: 16px; font-family: 'Barlow Condensed', sans-serif; font-size: 28px; letter-spacing: 1px; text-transform: uppercase; }
   .modal-content p { font-size: 15px; line-height: 1.6; color: #F0F2FF; margin-bottom: 16px; }
-  .modal-content button { margin-top: 10px; width: 100%; }
+  .modal-content .btn-row { display: flex; gap: 12px; margin-top: 24px; }
+  .modal-content .btn-row button { flex: 1; margin: 0; }
+
+  .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px); background: #009A44; color: #fff; padding: 12px 24px; border-radius: 6px; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 1px; opacity: 0; transition: 0.3s; pointer-events: none; z-index: 9999; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.error { background: #E50011; }
 </style>
 </head>
 <body>
@@ -53,19 +57,16 @@
     <h2>FWC26 Admin Editor</h2>
     <span class="status" id="statusLabel">🔄 Fetching live data...</span>
   </div>
-  <div>
-    <button class="btn-secondary" onclick="toggleManualMode()">🛠️ Manual Mode</button>
-    <button id="exportBtn" onclick="exportData()" disabled>📥 Download Updated HTML</button>
+  <div class="deploy-controls">
+    <button class="btn-secondary" onclick="toggleManualMode()" title="Use if auto-fetch fails">🛠️ Manual</button>
+    <button class="btn-secondary" onclick="downloadFallback()" title="Download file to computer">📥 Download HTML</button>
+    <button id="exportBtn" onclick="confirmDeploy()" disabled>🚀 Deploy Live to GitHub</button>
   </div>
-</div>
-
-<div class="banner-note">
-  <strong>⚠️ IMPORTANT NOTE:</strong> Saving changes here creates a file on your computer. It does <strong>NOT</strong> automatically update the live site. You must send the downloaded <code>index.html</code> code to Harry to deploy.
 </div>
 
 <div class="fallback-box" id="fallbackBox">
   <h3 style="margin-top:0;">Manual Paste Mode</h3>
-  <p style="color:var(--muted); margin-top:0;">Auto-fetch failed. Open your `index.html` file, copy all the code, and paste it into the box below to edit it.</p>
+  <p style="color:var(--muted); margin-top:0;">Auto-fetch failed. Open your live `index.html` file, copy all the code, and paste it below.</p>
   <textarea id="manualInput" placeholder="Paste your entire index.html code here..."></textarea>
   <button onclick="loadManualData()">Load Code Into Editor</button>
 </div>
@@ -92,36 +93,46 @@
   </table>
 </div>
 
-<div id="deployModal" class="modal-overlay">
+<div id="confirmModal" class="modal-overlay">
   <div class="modal-content">
-    <h3>⚠️ Action Required</h3>
-    <p>Your updated <code>index.html</code> file is downloading!</p>
-    <p style="color: #FF6B6B; font-weight: bold;">These changes are NOT live yet.</p>
-    <p>Please send this downloaded file directly to <strong>Harry</strong> so he can deploy it to the main GitHub repository.</p>
-    <button onclick="closeModal()">Understood</button>
+    <h3>⚠️ Confirm Deployment</h3>
+    <p>Are you sure you want to push these changes?</p>
+    <p style="color: #FF6B6B; font-weight: bold;">This will instantly overwrite the live schedule on GitHub.</p>
+    <div class="btn-row">
+      <button class="btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+      <button onclick="executeDeploy()">Yes, Push Changes</button>
+    </div>
   </div>
 </div>
 
+<div class="toast" id="toast">✅ Successfully deployed to GitHub! Live in ~60 seconds.</div>
+
 <script>
+// ==========================================
+// --- GITHUB REPO & SECURITY SETTINGS ---
+// ==========================================
+const REPO_OWNER = 'harryhartup'; // Your exact GitHub username
+const REPO_NAME = 'FWC26';        // Your exact repository name
+const FILE_PATH = 'index.html';   // The file being updated
+
+// ⚠️ PASTE YOUR GITHUB TOKEN INSIDE THESE QUOTES:
+const GITHUB_TOKEN = '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'; 
+// ==========================================
+
 let matches = [];
 let fullLiveHTML = "";
-// Using a safe proxy to bypass local file browser blocks (CORS)
-const LIVE_URL = "https://api.allorigins.win/raw?url=" + encodeURIComponent("https://harryhartup.github.io/FWC26/?nocache=" + new Date().getTime());
+const LIVE_URL = "https://api.allorigins.win/raw?url=" + encodeURIComponent(`https://${REPO_OWNER}.github.io/${REPO_NAME}/?nocache=` + new Date().getTime());
 
 async function fetchLiveSite() {
   try {
     const res = await fetch(LIVE_URL);
     if (!res.ok) throw new Error("Could not connect to GitHub URL.");
     
-    // Safely get the raw text code
     fullLiveHTML = await res.text();
-    
-    // Regex to find the matches array block in the raw HTML
     const regex = /const matches\s*=\s*\[([\s\S]*?)\];/;
     const match = fullLiveHTML.match(regex);
     
     if (match) {
-      // Reconstruct array safely
       const arrayStr = "[" + match[1] + "]";
       matches = new Function("return " + arrayStr)();
       
@@ -154,31 +165,27 @@ function loadManualData() {
     fullLiveHTML = document.getElementById('manualInput').value;
     const regex = /const matches\s*=\s*\[([\s\S]*?)\];/;
     const match = fullLiveHTML.match(regex);
-    
     if (match) {
       const arrayStr = "[" + match[1] + "]";
       matches = new Function("return " + arrayStr)();
-      
       document.getElementById('fallbackBox').classList.remove('active');
       document.getElementById('tableContainer').classList.add('active');
-      document.getElementById('statusLabel').innerHTML = "🟢 Manual Code Loaded Successfully";
+      document.getElementById('statusLabel').innerHTML = "🟢 Manual Code Loaded";
       document.getElementById('statusLabel').style.color = "#3DE090";
       document.getElementById('exportBtn').disabled = false;
       renderTable();
     } else {
-      alert("Error: Could not find the schedule array in the code you pasted.");
+      alert("Error: Could not find the schedule array.");
     }
   } catch(err) {
-    alert("Failed to parse data. Make sure you pasted the complete index.html code.");
+    alert("Failed to parse data.");
   }
 }
 
 function renderTable() {
   const tbody = document.getElementById('editorBody');
   tbody.innerHTML = matches.map((m, rowIndex) => {
-    // Fill empty spots to prevent undefined errors if a column is missing
     while(m.length < 12) m.push(""); 
-    
     return `
     <tr>
       <td><input type="text" value="${m[0]}" onchange="updateVal(${rowIndex}, 0, this.value)"></td>
@@ -223,40 +230,98 @@ function renderTable() {
   `}).join('');
 }
 
-function updateVal(row, col, val) {
-  matches[row][col] = val;
-}
+function updateVal(row, col, val) { matches[row][col] = val; }
 
-function exportData() {
-  // 1. Convert the current editor array back into a formatted JavaScript string
+function getUpdatedHTMLString() {
   let arrayOutput = "[\n";
   matches.forEach(m => {
     const stringified = m.map(item => `"${item}"`).join(",");
     arrayOutput += `  [${stringified}],\n`;
   });
   arrayOutput += "]";
-
-  // 2. Locate the old array in the full HTML string and replace it with the new one
   const regex = /(const matches\s*=\s*)\[[\s\S]*?\];/;
-  const newHTML = fullLiveHTML.replace(regex, `$1${arrayOutput};`);
-
-  // 3. Create a downloadable file in the browser
-  const blob = new Blob([newHTML], { type: 'text/html' });
-  const downloadLink = document.createElement('a');
-  downloadLink.href = URL.createObjectURL(blob);
-  downloadLink.download = 'index.html'; 
-  
-  // Trigger the download
-  document.body.appendChild(downloadLink);
-  downloadLink.click();
-  document.body.removeChild(downloadLink);
-
-  // 4. Show the instructional pop-up modal
-  document.getElementById('deployModal').classList.add('show');
+  return fullLiveHTML.replace(regex, `$1${arrayOutput};`);
 }
 
-function closeModal() {
-  document.getElementById('deployModal').classList.remove('show');
+function showToast(msg, isError = false) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  if(isError) toast.classList.add('error'); else toast.classList.remove('error');
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+function downloadFallback() {
+  if (!fullLiveHTML) return alert("No data loaded to download.");
+  const blob = new Blob([getUpdatedHTMLString()], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'index.html';
+  a.click();
+}
+
+// Show the confirmation modal
+function confirmDeploy() {
+  if (GITHUB_TOKEN === 'PASTE_YOUR_TOKEN_HERE' || !GITHUB_TOKEN) {
+    return alert("⚠️ You need to paste your GitHub Token into the GITHUB_TOKEN variable in the code first!");
+  }
+  document.getElementById('confirmModal').classList.add('show');
+}
+
+// Close the modal
+function closeConfirmModal() {
+  document.getElementById('confirmModal').classList.remove('show');
+}
+
+// GITHUB API DEPLOYMENT
+async function executeDeploy() {
+  closeConfirmModal();
+  
+  const btn = document.getElementById('exportBtn');
+  btn.textContent = "⏳ Pushing to GitHub...";
+  btn.disabled = true;
+
+  try {
+    const newHTML = getUpdatedHTMLString();
+    const base64Content = btoa(unescape(encodeURIComponent(newHTML)));
+
+    const getUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
+    const getRes = await fetch(getUrl, {
+      headers: { 'Authorization': `Bearer ${GITHUB_TOKEN}` }
+    });
+    
+    if (getRes.status === 401 || getRes.status === 403) throw new Error("Invalid GitHub Token. Check your permissions.");
+    if (!getRes.ok) throw new Error("Could not locate index.html in the repository.");
+    
+    const fileData = await getRes.json();
+    const currentSha = fileData.sha;
+
+    const putRes = await fetch(getUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message: 'Update schedule via Admin Panel',
+        content: base64Content,
+        sha: currentSha,
+        branch: 'main'
+      })
+    });
+
+    if (!putRes.ok) throw new Error("Failed to write new file to GitHub.");
+
+    showToast("✅ Successfully deployed to GitHub! Live in ~60 seconds.");
+    document.getElementById('statusLabel').innerHTML = "🟢 Push Successful!";
+
+  } catch (error) {
+    console.error(error);
+    showToast(`❌ Error: ${error.message}`, true);
+  } finally {
+    btn.textContent = "🚀 Deploy Live to GitHub";
+    btn.disabled = false;
+  }
 }
 
 // Start sequence
